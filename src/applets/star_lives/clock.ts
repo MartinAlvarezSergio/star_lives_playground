@@ -110,6 +110,21 @@ export function crossingsBetween(tracks: Track[], t0: number, t1: number): Cross
   return out.sort((a, b) => a.t - b.t);
 }
 
+/**
+ * An instant step (the helium flash, a supernova, a collapse) is never left half-done: once its
+ * start is reached the clock jumps to its end, so a paused clock never shows a star that has
+ * already exploded.
+ */
+function skipInstant(tracks: Track[], t: number, here: Crossing[]): { t: number; extra: Crossing[] } {
+  let to = t;
+  for (const c of here) {
+    if (c.track.keys[c.key].instant) {
+      to = Math.max(to, c.track.keys[c.key + 1]?.t ?? to);
+    }
+  }
+  return to > t ? { t: to, extra: crossingsBetween(tracks, t, to) } : { t, extra: [] };
+}
+
 export function stepSmart(tracks: Track[], t: number, wallDt: number, mult: number, stopAtStage: boolean, tEnd = T_END): StepResult {
   let tt = Math.max(t, T_START);
   let remaining = wallDt;
@@ -130,6 +145,9 @@ export function stepSmart(tracks: Track[], t: number, wallDt: number, mult: numb
     }
     tt = tb;
     const here = crossingsBetween(tracks, tb - Math.max(1e-9 * tb, 1e-6), tb);
+    const skip = skipInstant(tracks, tt, here);
+    tt = skip.t;
+    here.push(...skip.extra);
     crossings.push(...here);
     if (tb >= tEnd) {
       return { t: tEnd, crossings, stopped: false, ended: true };
@@ -148,8 +166,10 @@ export function stepSteady(tracks: Track[], t: number, wallDt: number, yearsPerS
   if (stopAtStage) {
     const first = crossings.find((c) => c.stageChange);
     if (first) {
-      t1 = first.t;
-      crossings = crossings.filter((c) => c.t <= t1);
+      const atStop = crossings.filter((c) => c.t === first.t);
+      const skip = skipInstant(tracks, first.t, atStop);
+      t1 = skip.t;
+      crossings = [...crossings.filter((c) => c.t <= first.t), ...skip.extra];
       stopped = true;
     }
   }

@@ -442,6 +442,169 @@ function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
   ctx.fill();
 }
 
+/** How long (wall-clock seconds) the supernova effect lasts on screen. */
+export const SUPERNOVA_SECONDS = 7;
+
+function hash01(i: number): number {
+  const v = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+const easeOut = (f: number): number => 1 - (1 - Math.min(1, Math.max(0, f))) ** 3;
+
+/** Debris: fixed random directions and speeds, so every explosion looks the same and never flickers. */
+const DEBRIS = Array.from({ length: 70 }, (_, i) => ({
+  angle: hash01(i) * Math.PI * 2,
+  speed: 90 + 260 * hash01(i + 100) ** 1.5,
+  size: 1 + 2.2 * hash01(i + 200),
+  hue: hash01(i + 300)
+}));
+
+/** A wobbly shell of glowing filaments: the supernova remnant left expanding behind. */
+const FILAMENTS = Array.from({ length: 34 }, (_, i) => ({
+  angle: (i / 34) * Math.PI * 2 + 0.15 * hash01(i + 400),
+  wobble: 0.75 + 0.5 * hash01(i + 500),
+  red: hash01(i + 600) > 0.45
+}));
+
+/**
+ * The supernova, in wall-clock seconds since it went off: a flash that lights up the whole screen,
+ * a blinding point with spikes, shock rings, flying debris, and a glowing remnant shell that
+ * keeps expanding as it fades.
+ */
+function drawSupernova(ctx: CanvasRenderingContext2D, x: number, y: number, age: number, reducedMotion: boolean): void {
+  const fade = (start: number, end: number): number => Math.max(0, Math.min(1, 1 - (age - start) / (end - start)));
+  ctx.save();
+
+  // 1. Whole-screen flash.
+  const flash = fade(0, reducedMotion ? 0.2 : 0.45);
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255, 252, 240, ${(reducedMotion ? 0.25 : 0.6) * flash})`;
+    ctx.fillRect(-40, -40, VIEW_W + 80, VIEW_H + 80);
+  }
+
+  ctx.globalCompositeOperation = "lighter";
+
+  // 2. Blinding core and spikes.
+  const core = fade(0, 2.6);
+  if (core > 0) {
+    const R = 40 + 150 * easeOut(age / 0.8);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, R);
+    g.addColorStop(0, `rgba(255, 255, 255, ${core})`);
+    g.addColorStop(0.15, `rgba(220, 235, 255, ${0.85 * core})`);
+    g.addColorStop(0.45, `rgba(140, 180, 255, ${0.35 * core})`);
+    g.addColorStop(1, "rgba(80, 120, 255, 0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fill();
+    const len = 60 + 260 * easeOut(age / 0.5);
+    ctx.lineCap = "round";
+    for (let k = 0; k < 4; k++) {
+      const a = (k * Math.PI) / 2 + Math.PI / 4;
+      const sp = ctx.createLinearGradient(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
+      sp.addColorStop(0, `rgba(255, 255, 255, ${0.9 * core})`);
+      sp.addColorStop(1, "rgba(255, 255, 255, 0)");
+      ctx.strokeStyle = sp;
+      ctx.lineWidth = 3 * core + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      ctx.stroke();
+    }
+  }
+
+  // 3. Shock rings racing outwards.
+  const rings: [number, string][] = [
+    [0, "255, 255, 255"],
+    [0.18, "150, 220, 255"],
+    [0.4, "255, 170, 90"]
+  ];
+  for (const [delay, rgb] of rings) {
+    const f = (age - delay) / 2.4;
+    if (f <= 0 || f >= 1) continue;
+    ctx.strokeStyle = `rgba(${rgb}, ${0.8 * (1 - f)})`;
+    ctx.lineWidth = 6 * (1 - f) + 1;
+    ctx.beginPath();
+    ctx.arc(x, y, 10 + 420 * easeOut(f), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 4. Debris streaking out, slowing and cooling from white to orange.
+  if (!reducedMotion && age < 3.5) {
+    const f = age / 3.5;
+    for (const d of DEBRIS) {
+      const r = d.speed * easeOut(age / 2.2);
+      const r0 = Math.max(0, r - 25 * (1 - f));
+      const cx = Math.cos(d.angle);
+      const cy = Math.sin(d.angle);
+      const hot = 1 - f;
+      const col = d.hue > 0.6 ? `255, ${Math.round(180 + 75 * hot)}, ${Math.round(110 + 145 * hot)}` : `${Math.round(200 + 55 * hot)}, ${Math.round(220 + 35 * hot)}, 255`;
+      ctx.strokeStyle = `rgba(${col}, ${0.9 * (1 - f)})`;
+      ctx.lineWidth = d.size;
+      ctx.beginPath();
+      ctx.moveTo(x + cx * r0, y + cy * r0);
+      ctx.lineTo(x + cx * r, y + cy * r);
+      ctx.stroke();
+    }
+  }
+
+  // 5. The remnant: a glowing, filamentary shell that keeps growing as it fades.
+  const shell = Math.min(1, (age - 0.6) / 0.8) * fade(3.5, SUPERNOVA_SECONDS);
+  if (shell > 0) {
+    const R = 25 + 32 * age;
+    for (const fl of FILAMENTS) {
+      const rr = R * fl.wobble;
+      const fx = x + Math.cos(fl.angle) * rr;
+      const fy = y + Math.sin(fl.angle) * rr;
+      const blob = 6 + 0.12 * rr;
+      const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, blob);
+      g.addColorStop(0, fl.red ? `rgba(255, 110, 90, ${0.55 * shell})` : `rgba(110, 230, 210, ${0.5 * shell})`);
+      g.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(fx, fy, blob, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const haze = ctx.createRadialGradient(x, y, R * 0.3, x, y, R * 1.1);
+    haze.addColorStop(0, "rgba(120, 150, 255, 0)");
+    haze.addColorStop(0.8, `rgba(170, 130, 255, ${0.14 * shell})`);
+    haze.addColorStop(1, "rgba(170, 130, 255, 0)");
+    ctx.fillStyle = haze;
+    ctx.beginPath();
+    ctx.arc(x, y, R * 1.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // 6. The word, popping in big and settling.
+  const words = fade(3.2, 4.6);
+  if (words > 0 && age > 0.08) {
+    const pop = reducedMotion ? 1 : 1 + 0.5 * Math.max(0, 1 - age / 0.35);
+    text(ctx, "SUPERNOVA!", x - 20, y + 48, `rgba(255, 255, 255, ${words})`, Math.round(28 * pop), "right", 900);
+    if (age > 0.6) {
+      text(ctx, "brighter than a whole galaxy, for weeks", x - 20, y + 74, `rgba(220, 230, 255, ${0.85 * words * Math.min(1, (age - 0.6) / 0.4)})`, 12.5, "right", 600);
+    }
+  }
+}
+
+/** Screen shake for a moment after a supernova (none with reduced motion). */
+function shakeFor(s: SceneInput): { dx: number; dy: number } {
+  if (s.reducedMotion) return { dx: 0, dy: 0 };
+  let dx = 0;
+  let dy = 0;
+  for (const e of s.events) {
+    const age = s.wall - e.wall0;
+    if (e.kind === "supernova" && age < 0.7) {
+      const amp = 9 * (1 - age / 0.7) ** 2;
+      dx += amp * Math.sin(age * 83);
+      dy += amp * Math.cos(age * 67);
+    }
+  }
+  return { dx, dy };
+}
+
 function drawEvents(ctx: CanvasRenderingContext2D, s: SceneInput): void {
   const l = s.layout;
   for (const e of s.events) {
@@ -456,18 +619,8 @@ function drawEvents(ctx: CanvasRenderingContext2D, s: SceneInput): void {
       ctx.arc(x, y, 6 + 26 * f, 0, Math.PI * 2);
       ctx.stroke();
       text(ctx, "Helium flash!", x + 14, y - 22, `rgba(255, 220, 120, ${1 - f * 0.7})`, 13, "left", 700);
-    } else if (e.kind === "supernova" && age < 3.5) {
-      const f = age / 3.5;
-      const R = (s.reducedMotion ? 40 : 30 + 110 * Math.sqrt(f)) * 1;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, R);
-      g.addColorStop(0, `rgba(255, 255, 255, ${0.95 * (1 - f)})`);
-      g.addColorStop(0.3, `rgba(190, 220, 255, ${0.6 * (1 - f)})`);
-      g.addColorStop(1, "rgba(120, 160, 255, 0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, R, 0, Math.PI * 2);
-      ctx.fill();
-      text(ctx, "Supernova!", x - 12, y + 34, `rgba(255, 255, 255, ${1 - f * 0.6})`, 16, "right", 800);
+    } else if (e.kind === "supernova" && age < SUPERNOVA_SECONDS) {
+      drawSupernova(ctx, x, y, age, s.reducedMotion);
     } else if (e.kind === "collapse" && age < 3.5) {
       const f = age / 3.5;
       ctx.strokeStyle = `rgba(255, 170, 90, ${0.9 * (1 - f)})`;
@@ -523,6 +676,12 @@ function drawRemnantTray(ctx: CanvasRenderingContext2D, s: SceneInput): void {
 
 export function renderScene(ctx: CanvasRenderingContext2D, s: SceneInput): DrawnStar[] {
   const l = s.layout;
+  // Fill first, unshaken, so a shake never shows the canvas edge.
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  const shake = shakeFor(s);
+  ctx.save();
+  ctx.translate(shake.dx, shake.dy);
   drawBackdrop(ctx, l, s.showSizes);
   drawTracks(ctx, s);
   drawRemnantTray(ctx, s);
@@ -554,7 +713,11 @@ export function renderScene(ctx: CanvasRenderingContext2D, s: SceneInput): Drawn
         ctx.stroke();
       }
     }
-    const pulse = s.reducedMotion ? 0 : 0.25 * Math.sin(s.clock * 2.4 + track.mass);
+    let pulse = s.reducedMotion ? 0 : 0.25 * Math.sin(s.clock * 2.4 + track.mass);
+    // In its last stages the core is about to give way: the star flickers and throbs.
+    if (st.phase === "late" && !s.reducedMotion) {
+      pulse += 1.1 * Math.abs(Math.sin(s.clock * 9)) + 0.5 * Math.abs(Math.sin(s.clock * 23));
+    }
     drawStar(ctx, x, y, r, st.T, pulse + (st.phase === "wd" ? 0 : 0.4));
     drawn.push({ id: track.id, x, y, r });
     if (track.id === s.followId && s.tracks.length > 1) {
@@ -579,6 +742,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, s: SceneInput): Drawn
   }
 
   drawEvents(ctx, s);
+  ctx.restore();
   return drawn;
 }
 

@@ -16,7 +16,7 @@ import {
 } from "../../ui/stage/StageControls";
 import { runEnd, smartYearsPerSecond, stepSmart, stepSteady, T_START, type ClockMode } from "./clock";
 import { CLOSE_H, CLOSE_W, renderCloseUp } from "./closeup";
-import { layoutFor, renderScene, renderTimeline, VIEW_H, VIEW_W, xToTime, type DrawnStar, type Layout, type SceneEvent } from "./render";
+import { layoutFor, renderScene, renderTimeline, SUPERNOVA_SECONDS, VIEW_H, VIEW_W, xToTime, type DrawnStar, type Layout, type SceneEvent } from "./render";
 import { formatYears, PHASES, starAt, trackById, TRACKS, type Track } from "./tracks";
 import "./starLives.css";
 
@@ -25,6 +25,9 @@ type Props = {
 };
 
 type View = "race" | "single";
+
+/** Seconds the smart clock holds still when a star explodes. */
+const HOLD_SECONDS = 1.6;
 
 const TIP = {
   play: "Start or pause the clock. Space bar works too.",
@@ -126,7 +129,9 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
     drawn: [] as DrawnStar[],
     layout: layoutFor(0, VIEW_W, TRACKS.length) as Layout,
     band: { left: 0, right: VIEW_W },
-    scrubbing: false
+    scrubbing: false,
+    /** Wall-clock time until which the smart clock holds still, so a supernova can sink in. */
+    holdUntil: 0
   });
 
   useEffect(() => {
@@ -150,7 +155,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         lastMeasure = now;
         st.band = freeBand(canvas);
       }
-      if (s.running && !st.scrubbing && s.tracks.length > 0) {
+      if (s.running && !st.scrubbing && s.tracks.length > 0 && clock >= st.holdUntil) {
         const r =
           s.clockMode === "smart"
             ? stepSmart(s.tracks, st.t, dt, 2 ** s.speedExp, s.stopAtStage, runEnd(s.tracks))
@@ -161,9 +166,13 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
             const k = c.track.keys[c.key];
             st.events.push({ kind: c.event, trackId: c.track.id, logT: k.logT, logL: k.logL, wall0: clock });
             host?.onResult?.({ event: c.event, star: c.track.id, age: c.t });
+            // The smart clock pauses for a beat at an explosion (the steady clock never does).
+            if (c.event === "supernova" && s.clockMode === "smart") {
+              st.holdUntil = clock + HOLD_SECONDS;
+            }
           }
         }
-        st.events = st.events.filter((e) => clock - e.wall0 < 4);
+        st.events = st.events.filter((e) => clock - e.wall0 < SUPERNOVA_SECONDS);
         if (r.stopped || r.ended) {
           live.current.running = false;
           setRunning(false);
@@ -189,7 +198,8 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
       const cctx = closeRef.current?.getContext("2d");
       if (cctx) {
         setLogicalTransform(cctx, CLOSE_W);
-        renderCloseUp(cctx, s.follow, st.t, clock);
+        const sn = st.events.find((e) => e.kind === "supernova" && e.trackId === s.follow.id);
+        renderCloseUp(cctx, s.follow, st.t, clock, sn ? clock - sn.wall0 : null);
       }
       if (now - lastUi > 120) {
         lastUi = now;
@@ -209,6 +219,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   function reset(mode = clockMode): void {
     sim.current.t = startTime(mode);
     sim.current.events = [];
+    sim.current.holdUntil = 0;
     setRunning(false);
     setStarted(false);
     setUiT(sim.current.t);

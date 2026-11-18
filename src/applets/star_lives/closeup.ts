@@ -87,18 +87,78 @@ function drawDisc(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
   }
 }
 
-export function renderCloseUp(ctx: CanvasRenderingContext2D, track: Track, t: number, clock: number): void {
+/** Close-up of the explosion itself, `age` wall-clock seconds after it went off. */
+function drawBoom(ctx: CanvasRenderingContext2D, cx: number, cy: number, age: number): void {
+  const fade = (a: number, b: number): number => Math.max(0, Math.min(1, 1 - (age - a) / (b - a)));
+  const ease = (f: number): number => 1 - (1 - Math.min(1, Math.max(0, f))) ** 3;
+  // The supergiant's last moment: its disc, swallowed by the blast.
+  const giant = fade(0, 0.35);
+  if (giant > 0) {
+    drawDisc(ctx, cx, cy, 70 * (1 + 0.3 * (1 - giant)), 3400, true, 0);
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const flash = fade(0, 0.5);
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255, 250, 235, ${0.85 * flash})`;
+    ctx.fillRect(0, 0, CLOSE_W, CLOSE_H);
+  }
+  const core = fade(0.1, 2.8);
+  if (core > 0) {
+    const R = 20 + 90 * ease(age / 0.9);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    g.addColorStop(0, `rgba(255, 255, 255, ${core})`);
+    g.addColorStop(0.3, `rgba(200, 225, 255, ${0.7 * core})`);
+    g.addColorStop(1, "rgba(100, 140, 255, 0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // The blown-off layers: a clumpy expanding shell, hot white turning red and teal.
+  const shell = fade(2.6, 5);
+  if (shell > 0) {
+    const R = 18 + 95 * ease(age / 2.5);
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2 + 0.2 * hash(i + 3);
+      const rr = R * (0.8 + 0.35 * hash(i + 9));
+      const fx = cx + Math.cos(a) * rr;
+      const fy = cy + Math.sin(a) * rr;
+      const b = 4 + 7 * hash(i + 17);
+      const hot = Math.max(0, 1 - age / 1.5);
+      const col = hash(i + 29) > 0.5 ? `255, ${Math.round(110 + 140 * hot)}, ${Math.round(90 + 160 * hot)}` : `${Math.round(110 + 140 * hot)}, ${Math.round(230 + 25 * hot)}, ${Math.round(210 + 45 * hot)}`;
+      const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, b);
+      g.addColorStop(0, `rgba(${col}, ${0.7 * shell})`);
+      g.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(fx, fy, b, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+export function renderCloseUp(ctx: CanvasRenderingContext2D, track: Track, t: number, clock: number, snAge: number | null = null): void {
   ctx.clearRect(0, 0, CLOSE_W, CLOSE_H);
   ctx.fillStyle = "rgba(6, 10, 18, 0.6)";
   ctx.fillRect(0, 0, CLOSE_W, CLOSE_H);
 
   const st = starAt(track, t);
   const phase = PHASES[st.phase];
-  text(ctx, `${track.label}: ${phase.name}`, CLOSE_W / 2, 13, track.colour, 13, "center", 700);
-
   const cx = CLOSE_W / 2;
   const cy = 92;
   const box = 64;
+
+  const boom = st.phase === "ns" && snAge !== null && snAge < 5;
+  if (boom) {
+    drawBoom(ctx, cx, cy, snAge);
+  }
+  text(ctx, boom && snAge < 2.4 ? `${track.label}: Supernova!` : `${track.label}: ${phase.name}`, CLOSE_W / 2, 13, track.colour, 13, "center", 700);
+  if (boom) {
+    // The neutron star fades in as the debris clears.
+    ctx.globalAlpha = Math.max(0, Math.min(1, (snAge - 2.4) / 1.6));
+  }
 
   if (st.phase === "ns") {
     ctx.strokeStyle = "rgba(160, 200, 255, 0.4)";
@@ -178,4 +238,5 @@ export function renderCloseUp(ctx: CanvasRenderingContext2D, track: Track, t: nu
     text(ctx, `${sizeWords(st.R)} · ${Math.round(st.T).toLocaleString("en-US")} K`, cx, cy + 74, INK, 11.5, "center", 600);
   }
   wrap(ctx, phase.fusing, cx, cy + 94, CLOSE_W - 24, MUTED, 10.5);
+  ctx.globalAlpha = 1;
 }
