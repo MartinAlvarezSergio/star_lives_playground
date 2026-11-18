@@ -45,6 +45,7 @@ const TIP = {
   stop: "Pause the clock whenever a star on screen starts a new stage of its life.",
   ahead: "Show each star's whole future path as a faint dashed line.",
   sizes: "Dashed lines through stars of the same size. Hot and big means very bright.",
+  background: "Faint dots: a made-up crowd of ordinary stars, to show where most stars sit on the diagram.",
   closeSize: "How big the close-up (bottom right) is. It never grows past the space under the numbers; full screen gives it more room.",
   follow: "Which star the close-up (bottom right) shows. You can also click a star on the diagram.",
   age: "All the stars were born together, so they all have this age. The timeline at the bottom shows it too.",
@@ -137,6 +138,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   const [stopAtStage, setStopAtStage] = useState(false);
   const [showAhead, setShowAhead] = useState(true);
   const [showSizes, setShowSizes] = useState(true);
+  const [showBackground, setShowBackground] = useState(true);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);
   const [uiT, setUiT] = useState(T_START);
@@ -149,8 +151,8 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   const tracks: Track[] = view === "race" ? TRACKS.filter((t) => raceIds.includes(t.id)) : [trackById(singleId)];
   const follow = view === "single" ? trackById(singleId) : tracks.find((t) => t.id === followId) ?? tracks[0] ?? trackById("m1");
 
-  const live = useRef({ tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, running, closeSize });
-  live.current = { tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, running, closeSize };
+  const live = useRef({ tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, showBackground, running, closeSize });
+  live.current = { tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, showBackground, running, closeSize };
 
   const sim = useRef({
     t: T_START,
@@ -222,6 +224,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         followId: s.follow.id,
         showAhead: s.showAhead,
         showSizes: s.showSizes,
+        showBackground: s.showBackground,
         events: st.events,
         wall: clock,
         clock,
@@ -451,14 +454,20 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         <div className="sl-star-toggles">
           <StageToggle label="Path ahead" on={showAhead} tip={TIP.ahead} onChange={setShowAhead} />
           <StageToggle label="Size lines" on={showSizes} tip={TIP.sizes} onChange={setShowSizes} />
+          <StageToggle label="Background stars" on={showBackground} tip={TIP.background} onChange={setShowBackground} />
         </div>
       </StageSection>
     </>
   );
 
   const followState = starAt(follow, uiT);
+  // The readouts panel matches the close-up's width (canvas + 12 px inset padding − 24 px own padding).
+  const bigReadouts = closeScale > 1.3;
   const readouts = (
-    <>
+    <div
+      className={`sl-readouts${bigReadouts ? " is-large" : ""}`}
+      style={bigReadouts ? { width: Math.round(CLOSE_W * closeScale) - 12 } : undefined}
+    >
       <StageHero label={view === "race" ? "Age of all five" : "Age"} value={formatYears(uiT)} tip={TIP.age} />
       <StageReadout label="Clock speed" value={`${formatYears(uiRate, "yr")} / s`} tip={TIP.rate} />
       {view === "race" ? (
@@ -488,7 +497,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
           <StageReadout label="Whole life" value={follow.lifeWords ? "over a trillion years" : formatYears(follow.lifeEnd)} tip={TIP.life} />
         </>
       )}
-    </>
+    </div>
   );
 
   const inset = (
@@ -547,6 +556,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         </li>
         <li>Real paths depend on what the star is made of, how fast it spins, and how much mass it blows away, which is most uncertain for the heaviest stars. Whether a 40-Sun star explodes before becoming a black hole, or collapses quietly, is still debated.</li>
         <li>Stars start on the main sequence; their earlier birth (contracting gas clouds) is left out.</li>
+        <li>The faint background dots are an illustrative crowd of main-sequence stars, not a real catalogue. Like real neighbourhoods they are mostly cool red dwarfs, with hot blue stars rare. Their gentle circling is decoration: a star's place on the diagram only changes as it ages.</li>
         <li>The Sun's helium flash happens deep inside in minutes; the star then takes a while to settle onto the helium-burning stage. The dashed line skips that settling.</li>
         <li>White dwarfs cool along a line of constant size, using a simple cooling law (Mestel's). Neutron stars and black holes are far too small and dim to plot.</li>
         <li>The red dwarf's life (over a trillion years) is a theoretical prediction: the Universe is far too young for any red dwarf to have died.</li>

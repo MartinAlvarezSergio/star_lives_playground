@@ -138,6 +138,72 @@ const ZAMS: [number, number][] = [
   [4.72, 5.8]
 ];
 
+/** log L on the zero-age main sequence at a given log T (linear between the ZAMS points). */
+function zamsLogL(logT: number): number {
+  for (let i = 0; i < ZAMS.length - 1; i++) {
+    const [ta, la] = ZAMS[i];
+    const [tb, lb] = ZAMS[i + 1];
+    if (logT <= tb) {
+      return la + ((lb - la) * (logT - ta)) / (tb - ta);
+    }
+  }
+  return ZAMS[ZAMS.length - 1][1];
+}
+
+/**
+ * Illustrative background stars on the main sequence (not a real catalogue). Cool, faint stars far
+ * outnumber hot, bright ones, as in any patch of the Galaxy. Each sits somewhere between the
+ * zero-age main sequence and the brighter, slightly cooler place it reaches near the end of its
+ * hydrogen burning, with a little scatter. Fixed seed, so they never move.
+ */
+export const BACKGROUND_STARS = Array.from({ length: 420 }, (_, i) => {
+  const x = hash01(i + 1000);
+  // Skewed hard towards cool stars; a few reach the hot O stars.
+  const logT0 = 3.46 + (4.68 - 3.46) * x ** 2.4;
+  const evolved = 0.5 * hash01(i + 2000) ** 1.4;
+  const g = Math.sqrt(-2 * Math.log(Math.max(1e-6, hash01(i + 3000)))) * Math.cos(2 * Math.PI * hash01(i + 4000));
+  const logT = logT0 - 0.04 * evolved + 0.012 * g;
+  const logL = zamsLogL(logT0) + evolved + 0.07 * g;
+  // A small decorative orbit round its spot: tilted ellipse, smaller loops go round faster (Kepler-like).
+  const size = 1.5 + 4.5 * hash01(i + 6000);
+  return {
+    logT,
+    logL,
+    twinkle: hash01(i + 5000) * Math.PI * 2,
+    orbitA: size,
+    orbitB: size * (0.45 + 0.5 * hash01(i + 7000)),
+    tilt: hash01(i + 8000) * Math.PI,
+    period: 9 * (size / 3) ** 1.5,
+    phase: hash01(i + 9000) * Math.PI * 2,
+    sense: hash01(i + 9500) > 0.5 ? 1 : -1
+  };
+});
+
+function drawBackgroundStars(ctx: CanvasRenderingContext2D, l: Layout, clock: number, reducedMotion: boolean): void {
+  for (const b of BACKGROUND_STARS) {
+    let x = xOf(l, b.logT);
+    let y = yOf(l, b.logL);
+    if (!reducedMotion) {
+      const th = b.phase + (b.sense * 2 * Math.PI * clock) / b.period;
+      const ex = b.orbitA * Math.cos(th);
+      const ey = b.orbitB * Math.sin(th);
+      x += ex * Math.cos(b.tilt) - ey * Math.sin(b.tilt);
+      y += ex * Math.sin(b.tilt) + ey * Math.cos(b.tilt);
+    }
+    const R = Math.sqrt(10 ** b.logL) * (5772 / 10 ** b.logT) ** 2;
+    const r = Math.max(0.9, Math.min(2.8, 1.3 + 0.55 * Math.log10(R)));
+    const a = reducedMotion ? 0.6 : 0.5 + 0.18 * Math.sin(clock * 1.3 + b.twinkle);
+    ctx.fillStyle = starColour(10 ** b.logT, a * 0.35);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = starColour(10 ** b.logT, a);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 const SPECTRAL: { letter: string; hot: number; cool: number }[] = [
   { letter: "O", hot: 5.25, cool: Math.log10(30000) },
   { letter: "B", hot: Math.log10(30000), cool: 4 },
@@ -178,7 +244,8 @@ function clipPlot(ctx: CanvasRenderingContext2D, l: Layout): void {
   ctx.clip();
 }
 
-function drawBackdrop(ctx: CanvasRenderingContext2D, l: Layout, showSizes: boolean): void {
+function drawBackdrop(ctx: CanvasRenderingContext2D, l: Layout, s: SceneInput): void {
+  const showSizes = s.showSizes;
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
@@ -199,6 +266,10 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, l: Layout, showSizes: boole
   ctx.closePath();
   ctx.fillStyle = "rgba(111, 179, 255, 0.08)";
   ctx.fill();
+
+  if (s.showBackground) {
+    drawBackgroundStars(ctx, l, s.clock, s.reducedMotion);
+  }
 
   // Giants and supergiants regions (soft blobs).
   const blob = (logT: number, logL: number, rx: number, ry: number, colour: string): void => {
@@ -343,6 +414,7 @@ export type SceneInput = {
   followId: string;
   showAhead: boolean;
   showSizes: boolean;
+  showBackground: boolean;
   events: SceneEvent[];
   wall: number;
   clock: number;
@@ -682,7 +754,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, s: SceneInput): Drawn
   const shake = shakeFor(s);
   ctx.save();
   ctx.translate(shake.dx, shake.dy);
-  drawBackdrop(ctx, l, s.showSizes);
+  drawBackdrop(ctx, l, s);
   drawTracks(ctx, s);
   drawRemnantTray(ctx, s);
 
