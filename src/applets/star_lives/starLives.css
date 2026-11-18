@@ -1,0 +1,28 @@
+/* Lives of stars: a fixed-width readouts panel (so the diagram does not shift as words change),
+   the age stacked under its label, and the wrapping rows of toggles. */
+
+.star-lives .stage-readouts {
+  width: 250px;
+  min-width: 0;
+  max-width: none;
+}
+
+.star-lives .stage-hero {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.star-lives .stage-hero strong {
+  font-size: 1.45rem;
+}
+
+.star-lives .stage-readout strong {
+  text-align: right;
+}
+
+.star-lives .sl-star-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
