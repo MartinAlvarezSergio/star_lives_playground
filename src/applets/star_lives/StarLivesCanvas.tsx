@@ -46,6 +46,7 @@ const TIP = {
   ahead: "Show each star's whole future path as a faint dashed line.",
   sizes: "Dashed lines through stars of the same size. Hot and big means very bright.",
   background: "Faint dots: a made-up crowd of ordinary stars, to show where most stars sit on the diagram, plus a few giants and hot stars that come and go.",
+  detail: "More words on the diagram: what the size lines mean, where the Sun is today, how each star ends, and what each star is fusing.",
   closeSize: "How big the close-up (bottom right) is. It never grows past the space under the numbers; full screen gives it more room.",
   follow: "Which star the close-up (bottom right) shows. You can also click a star on the diagram.",
   age: "All the stars were born together, so they all have this age. The timeline at the bottom shows it too.",
@@ -139,6 +140,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   const [showAhead, setShowAhead] = useState(true);
   const [showSizes, setShowSizes] = useState(true);
   const [showBackground, setShowBackground] = useState(true);
+  const [detail, setDetail] = useState(false);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);
   const [uiT, setUiT] = useState(T_START);
@@ -151,8 +153,8 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   const tracks: Track[] = view === "race" ? TRACKS.filter((t) => raceIds.includes(t.id)) : [trackById(singleId)];
   const follow = view === "single" ? trackById(singleId) : tracks.find((t) => t.id === followId) ?? tracks[0] ?? trackById("m1");
 
-  const live = useRef({ tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, showBackground, running, closeSize });
-  live.current = { tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, showBackground, running, closeSize };
+  const live = useRef({ tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, showBackground, detail, running, closeSize });
+  live.current = { tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, showBackground, detail, running, closeSize };
 
   const sim = useRef({
     t: T_START,
@@ -225,6 +227,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         showAhead: s.showAhead,
         showSizes: s.showSizes,
         showBackground: s.showBackground,
+        detail: s.detail,
         events: st.events,
         wall: clock,
         clock,
@@ -232,12 +235,12 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         reducedMotion,
         labelAll: s.view === "single"
       });
-      renderTimeline(ctx, st.layout, s.tracks, st.t, s.clockMode, s.follow.id);
+      renderTimeline(ctx, st.layout, s.tracks, st.t, s.clockMode, s.follow.id, s.detail);
       const cctx = closeRef.current?.getContext("2d");
       if (cctx) {
         setLogicalTransform(cctx, CLOSE_W);
         const sn = st.events.find((e) => e.kind === "supernova" && e.trackId === s.follow.id);
-        renderCloseUp(cctx, s.follow, st.t, clock, sn ? clock - sn.wall0 : null);
+        renderCloseUp(cctx, s.follow, st.t, clock, sn ? clock - sn.wall0 : null, s.detail);
       }
       if (now - lastUi > 120) {
         lastUi = now;
@@ -455,6 +458,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
           <StageToggle label="Path ahead" on={showAhead} tip={TIP.ahead} onChange={setShowAhead} />
           <StageToggle label="Size lines" on={showSizes} tip={TIP.sizes} onChange={setShowSizes} />
           <StageToggle label="Background stars" on={showBackground} tip={TIP.background} onChange={setShowBackground} />
+          <StageToggle label="Extra labels" on={detail} tip={TIP.detail} onChange={setDetail} />
         </div>
       </StageSection>
     </>

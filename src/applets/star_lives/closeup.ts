@@ -139,7 +139,14 @@ function drawBoom(ctx: CanvasRenderingContext2D, cx: number, cy: number, age: nu
   ctx.restore();
 }
 
-export function renderCloseUp(ctx: CanvasRenderingContext2D, track: Track, t: number, clock: number, snAge: number | null = null): void {
+export function renderCloseUp(
+  ctx: CanvasRenderingContext2D,
+  track: Track,
+  t: number,
+  clock: number,
+  snAge: number | null = null,
+  detail = true
+): void {
   ctx.clearRect(0, 0, CLOSE_W, CLOSE_H);
   ctx.fillStyle = "rgba(6, 10, 18, 0.6)";
   ctx.fillRect(0, 0, CLOSE_W, CLOSE_H);
@@ -237,6 +244,8 @@ export function renderCloseUp(ctx: CanvasRenderingContext2D, track: Track, t: nu
     }
     text(ctx, `${sizeWords(st.R)} · ${Math.round(st.T).toLocaleString("en-US")} K`, cx, cy + 74, INK, 11.5, "center", 600);
   }
-  wrap(ctx, phase.fusing, cx, cy + 94, CLOSE_W - 24, MUTED, 10.5);
+  if (detail) {
+    wrap(ctx, phase.fusing, cx, cy + 94, CLOSE_W - 24, MUTED, 10.5);
+  }
   ctx.globalAlpha = 1;
 }

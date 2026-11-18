@@ -379,6 +379,7 @@ function clipPlot(ctx: CanvasRenderingContext2D, l: Layout): void {
 
 function drawBackdrop(ctx: CanvasRenderingContext2D, l: Layout, s: SceneInput): void {
   const showSizes = s.showSizes;
+  const detail = s.detail;
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
@@ -447,7 +448,7 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, l: Layout, s: SceneInput): 
     }
     ctx.setLineDash([]);
     const angle = Math.atan2(yOf(l, 4) - yOf(l, 0), xOf(l, 4.761) - xOf(l, 3.761));
-    for (const s of SIZE_LINES) {
+    for (const s of detail ? SIZE_LINES : []) {
       const x = xOf(l, s.at);
       const y = yOf(l, logLAtRadius(s.logR, s.at));
       if (y < l.py0 + 10 || y > l.py1 - 10) continue;
@@ -549,6 +550,8 @@ export type SceneInput = {
   showAhead: boolean;
   showSizes: boolean;
   showBackground: boolean;
+  /** Extra explanatory labels (size lines, "the Sun today", captions); off shows only the basics. */
+  detail: boolean;
   events: SceneEvent[];
   wall: number;
   clock: number;
@@ -614,7 +617,7 @@ function drawTracks(ctx: CanvasRenderingContext2D, s: SceneInput): void {
   }
 
   // The Sun today.
-  if (s.tracks.some((t) => t.id === "m1")) {
+  if (s.detail && s.tracks.some((t) => t.id === "m1")) {
     const x = xOf(l, SUN_TODAY.logT);
     const y = yOf(l, SUN_TODAY.logL);
     ctx.strokeStyle = "rgba(255, 211, 107, 0.8)";
@@ -678,7 +681,7 @@ const FILAMENTS = Array.from({ length: 34 }, (_, i) => ({
  * a blinding point with spikes, shock rings, flying debris, and a glowing remnant shell that
  * keeps expanding as it fades.
  */
-function drawSupernova(ctx: CanvasRenderingContext2D, x: number, y: number, age: number, reducedMotion: boolean): void {
+function drawSupernova(ctx: CanvasRenderingContext2D, x: number, y: number, age: number, reducedMotion: boolean, detail: boolean): void {
   const fade = (start: number, end: number): number => Math.max(0, Math.min(1, 1 - (age - start) / (end - start)));
   ctx.save();
 
@@ -789,7 +792,7 @@ function drawSupernova(ctx: CanvasRenderingContext2D, x: number, y: number, age:
   if (words > 0 && age > 0.08) {
     const pop = reducedMotion ? 1 : 1 + 0.5 * Math.max(0, 1 - age / 0.35);
     text(ctx, "SUPERNOVA!", x - 20, y + 48, `rgba(255, 255, 255, ${words})`, Math.round(28 * pop), "right", 900);
-    if (age > 0.6) {
+    if (detail && age > 0.6) {
       text(ctx, "brighter than a whole galaxy, for weeks", x - 20, y + 74, `rgba(220, 230, 255, ${0.85 * words * Math.min(1, (age - 0.6) / 0.4)})`, 12.5, "right", 600);
     }
   }
@@ -826,7 +829,7 @@ function drawEvents(ctx: CanvasRenderingContext2D, s: SceneInput): void {
       ctx.stroke();
       text(ctx, "Helium flash!", x + 14, y - 22, `rgba(255, 220, 120, ${1 - f * 0.7})`, 13, "left", 700);
     } else if (e.kind === "supernova" && age < SUPERNOVA_SECONDS) {
-      drawSupernova(ctx, x, y, age, s.reducedMotion);
+      drawSupernova(ctx, x, y, age, s.reducedMotion, s.detail);
     } else if (e.kind === "collapse" && age < 3.5) {
       const f = age / 3.5;
       ctx.strokeStyle = `rgba(255, 170, 90, ${0.9 * (1 - f)})`;
@@ -848,9 +851,10 @@ function drawRemnantTray(ctx: CanvasRenderingContext2D, s: SceneInput): void {
   const gone = s.tracks.filter((tr) => isOffChart(starAt(tr, s.t).phase));
   if (gone.length === 0) return;
   const x0 = l.px0 + 10;
-  const h = 26 + gone.length * 22;
+  const head = s.detail ? 26 : 8;
+  const h = head + gone.length * 22;
   const y0 = l.py1 - 10 - h;
-  const w = 238;
+  const w = s.detail ? 238 : 150;
   ctx.fillStyle = "rgba(10, 14, 24, 0.85)";
   ctx.strokeStyle = "rgba(235, 232, 226, 0.22)";
   ctx.lineWidth = 1;
@@ -858,10 +862,12 @@ function drawRemnantTray(ctx: CanvasRenderingContext2D, s: SceneInput): void {
   ctx.roundRect(x0, y0, w, h, 8);
   ctx.fill();
   ctx.stroke();
-  text(ctx, "Off the chart: too small and dim to plot", x0 + 10, y0 + 13, MUTED, 10.5, "left", 600);
+  if (s.detail) {
+    text(ctx, "Off the chart: too small and dim to plot", x0 + 10, y0 + 13, MUTED, 10.5, "left", 600);
+  }
   gone.forEach((tr, i) => {
     const phase = starAt(tr, s.t).phase;
-    const y = y0 + 34 + i * 22;
+    const y = y0 + head + 8 + i * 22;
     const x = x0 + 18;
     if (phase === "bh") {
       ctx.strokeStyle = "rgba(255, 170, 90, 0.9)";
@@ -876,7 +882,7 @@ function drawRemnantTray(ctx: CanvasRenderingContext2D, s: SceneInput): void {
     } else {
       drawStar(ctx, x, y, 2, 6e5, 0.5);
     }
-    text(ctx, `${PHASES[phase].name} (from the ${tr.label} star)`, x + 14, y, tr.colour, 11.5, "left", 600);
+    text(ctx, s.detail ? `${PHASES[phase].name} (from the ${tr.label} star)` : PHASES[phase].name, x + 14, y, tr.colour, 11.5, "left", 600);
   });
 }
 
@@ -967,11 +973,22 @@ const T_TICKS_LOG: [number, string][] = [
   [1e10, "10 billion years"]
 ];
 
-function lifeWords(track: Track): string {
+function lifeWords(track: Track, detail: boolean): string {
+  if (!detail) {
+    return track.lifeWords ? "over a trillion years" : formatYears(track.lifeEnd);
+  }
   return track.lifeWords ?? `lives ${formatYears(track.lifeEnd)}, ${track.fate}`;
 }
 
-export function renderTimeline(ctx: CanvasRenderingContext2D, l: Layout, tracks: Track[], t: number, mode: ClockMode, followId: string): void {
+export function renderTimeline(
+  ctx: CanvasRenderingContext2D,
+  l: Layout,
+  tracks: Track[],
+  t: number,
+  mode: ClockMode,
+  followId: string,
+  detail: boolean
+): void {
   const tx = (x: number): number => timeToX(l, x, mode);
 
   tracks.forEach((track, i) => {
@@ -979,7 +996,7 @@ export function renderTimeline(ctx: CanvasRenderingContext2D, l: Layout, tracks:
     const barY = y + 12;
     // Row words.
     const w = text(ctx, track.label, l.tx0, y + 5, track.colour, 11.5, "left", 800);
-    text(ctx, ` · ${lifeWords(track)}`, l.tx0 + w, y + 5, track.id === followId ? INK : MUTED, 11, "left", 500);
+    text(ctx, ` · ${lifeWords(track, detail)}`, l.tx0 + w, y + 5, track.id === followId ? INK : MUTED, 11, "left", 500);
     // Stage bars.
     ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
     ctx.fillRect(l.tx0, barY, l.tx1 - l.tx0, 8);
@@ -1062,7 +1079,7 @@ export function renderTimeline(ctx: CanvasRenderingContext2D, l: Layout, tracks:
   });
   const caption = mode === "smart" ? "Age (each step is 10 × longer) · drag to scrub" : "Age (even steps) · drag to scrub";
   ctx.font = "500 10.5px system-ui, sans-serif";
-  if (l.tx1 - ctx.measureText(caption).width > x + 8) {
+  if (detail && l.tx1 - ctx.measureText(caption).width > x + 8) {
     text(ctx, caption, l.tx1, ly, MUTED, 10.5, "right", 500);
   }
 }
