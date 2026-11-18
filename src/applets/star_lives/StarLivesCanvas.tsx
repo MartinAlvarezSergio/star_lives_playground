@@ -45,7 +45,7 @@ const TIP = {
   stop: "Pause the clock whenever a star on screen starts a new stage of its life.",
   ahead: "Show each star's whole future path as a faint dashed line.",
   sizes: "Dashed lines through stars of the same size. Hot and big means very bright.",
-  background: "Faint dots: a made-up crowd of ordinary stars, to show where most stars sit on the diagram.",
+  background: "Faint dots: a made-up crowd of ordinary stars, to show where most stars sit on the diagram, plus a few giants and hot stars that come and go.",
   closeSize: "How big the close-up (bottom right) is. It never grows past the space under the numbers; full screen gives it more room.",
   follow: "Which star the close-up (bottom right) shows. You can also click a star on the diagram.",
   age: "All the stars were born together, so they all have this age. The timeline at the bottom shows it too.",
@@ -557,6 +557,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
         <li>Real paths depend on what the star is made of, how fast it spins, and how much mass it blows away, which is most uncertain for the heaviest stars. Whether a 40-Sun star explodes before becoming a black hole, or collapses quietly, is still debated.</li>
         <li>Stars start on the main sequence; their earlier birth (contracting gas clouds) is left out.</li>
         <li>The faint background dots are an illustrative crowd of main-sequence stars, not a real catalogue. Like real neighbourhoods they are mostly cool red dwarfs, with hot blue stars rare. Their gentle circling is decoration: a star's place on the diagram only changes as it ages.</li>
+        <li>The brighter dots that fade in and out among the giants, supergiants and hot stars are exaggerated on purpose. Those stages are short, so in a real crowd of 500 stars you would find only a handful of giants and almost never a supergiant or a hot blue star.</li>
         <li>The Sun's helium flash happens deep inside in minutes; the star then takes a while to settle onto the helium-burning stage. The dashed line skips that settling.</li>
         <li>White dwarfs cool along a line of constant size, using a simple cooling law (Mestel's). Neutron stars and black holes are far too small and dim to plot.</li>
         <li>The red dwarf's life (over a trillion years) is a theoretical prediction: the Universe is far too young for any red dwarf to have died.</li>

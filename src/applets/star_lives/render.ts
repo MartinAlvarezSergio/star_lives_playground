@@ -231,6 +231,86 @@ export const BACKGROUND_STARS = (() => {
 /** Background dots are this fraction of the size a moving star would have at the same spot. */
 const BACKGROUND_SIZE = 0.35;
 
+/**
+ * Transient background stars: a small cast that fades in, holds a few seconds, fades out and
+ * reappears somewhere new, in the short-lived stages (red giants, the helium-burning clump,
+ * supergiants) and on the rare upper main sequence. Exaggerated on purpose: in a real crowd of
+ * 500 there would be only a handful of giants and almost no hot or supergiant stars.
+ */
+const TRANSIENT_SLOTS = 16;
+
+type Region = { weight: number; place: (h: (k: number) => number) => { logT: number; logL: number } };
+
+const TRANSIENT_REGIONS: Region[] = [
+  // Red-giant branch: cooler as it climbs.
+  {
+    weight: 0.32,
+    place: (h) => {
+      const logL = 0.6 + 2.3 * h(1);
+      return { logT: 3.7 - 0.045 * (logL - 0.6) + 0.012 * (h(2) - 0.5), logL };
+    }
+  },
+  // Red clump: helium-burning giants bunched together.
+  { weight: 0.18, place: (h) => ({ logT: 3.68 + 0.03 * (h(1) - 0.5), logL: 1.7 + 0.25 * (h(2) - 0.5) }) },
+  // Red supergiants.
+  { weight: 0.2, place: (h) => ({ logT: 3.53 + 0.09 * h(1), logL: 4.6 + 0.8 * h(2) }) },
+  // Yellow and blue supergiants crossing the top.
+  { weight: 0.12, place: (h) => ({ logT: 3.75 + 0.7 * h(1), logL: 4.7 + 0.9 * h(2) }) },
+  // Upper main sequence: hot, massive, short-lived.
+  {
+    weight: 0.18,
+    place: (h) => {
+      const z = zamsAtMass(3 * 10 ** (1.0 * h(1)));
+      const evolved = 0.45 * h(2);
+      return { logT: z.logT - 0.04 * evolved, logL: z.logL + evolved };
+    }
+  }
+];
+
+function transientPlace(slot: number, cycle: number): { logT: number; logL: number } {
+  const h = (k: number): number => hash01(slot * 7919 + cycle * 104729 + k * 31);
+  let pick = h(0);
+  for (const r of TRANSIENT_REGIONS) {
+    if (pick < r.weight) return r.place(h);
+    pick -= r.weight;
+  }
+  return TRANSIENT_REGIONS[0].place(h);
+}
+
+function drawTransients(ctx: CanvasRenderingContext2D, l: Layout, clock: number, reducedMotion: boolean): void {
+  for (let slot = 0; slot < TRANSIENT_SLOTS; slot++) {
+    const period = 5 + 5 * hash01(slot + 11000);
+    const shown = 0.6 * period;
+    const tt = clock + period * hash01(slot + 12000);
+    const cycle = reducedMotion ? 0 : Math.floor(tt / period);
+    const local = tt - Math.floor(tt / period) * period;
+    let alpha = 1;
+    if (!reducedMotion) {
+      if (local > shown) continue;
+      alpha = Math.min(1, local / 0.8, (shown - local) / 1.2);
+    }
+    const p = transientPlace(slot, cycle);
+    const x = xOf(l, p.logT);
+    const y = yOf(l, p.logL);
+    const R = Math.sqrt(10 ** p.logL) * (5772 / 10 ** p.logT) ** 2;
+    const r = BACKGROUND_SIZE * dotRadius(R);
+    // A brief swell as it appears.
+    const swell = reducedMotion ? 1 : 1 + 0.6 * Math.max(0, 1 - local / 0.8);
+    const T = 10 ** p.logT;
+    const halo = ctx.createRadialGradient(x, y, 0, x, y, r * 3 * swell);
+    halo.addColorStop(0, starColour(T, 0.45 * alpha));
+    halo.addColorStop(1, starColour(T, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 3 * swell, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = starColour(T, 0.85 * alpha);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function drawBackgroundStars(ctx: CanvasRenderingContext2D, l: Layout, clock: number, reducedMotion: boolean): void {
   for (const b of BACKGROUND_STARS) {
     let x = xOf(l, b.logT);
@@ -322,6 +402,7 @@ function drawBackdrop(ctx: CanvasRenderingContext2D, l: Layout, s: SceneInput): 
 
   if (s.showBackground) {
     drawBackgroundStars(ctx, l, s.clock, s.reducedMotion);
+    drawTransients(ctx, l, s.clock, s.reducedMotion);
   }
 
   // Giants and supergiants regions (soft blobs).
