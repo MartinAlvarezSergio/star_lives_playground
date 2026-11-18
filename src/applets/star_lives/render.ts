@@ -119,9 +119,9 @@ function text(
   return ctx.measureText(s).width;
 }
 
-/** On-screen size of a star dot: grows with the log of its radius (white dwarf 2 px, supergiant ~16 px). */
+/** On-screen size of a star dot: grows with the log of its radius (white dwarf 4 px, Sun 12 px, supergiant ~24 px). */
 export function dotRadius(R: number): number {
-  return Math.max(2.2, Math.min(17, 2.2 + 2.6 * (Math.log10(R) + 2)));
+  return Math.max(3.5, Math.min(28, 4 + 4 * (Math.log10(R) + 2)));
 }
 
 const ZAMS: [number, number][] = [
@@ -425,12 +425,12 @@ function drawTracks(ctx: CanvasRenderingContext2D, s: SceneInput): void {
 }
 
 function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, T: number, glow: number): void {
-  const halo = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * (2.6 + glow));
+  const halo = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * (1.9 + glow));
   halo.addColorStop(0, starColour(T, 0.55));
   halo.addColorStop(1, starColour(T, 0));
   ctx.fillStyle = halo;
   ctx.beginPath();
-  ctx.arc(x, y, r * (2.6 + glow), 0, Math.PI * 2);
+  ctx.arc(x, y, r * (1.9 + glow), 0, Math.PI * 2);
   ctx.fill();
   const disc = ctx.createRadialGradient(x - r * 0.25, y - r * 0.25, 0, x, y, r);
   disc.addColorStop(0, "rgba(255, 255, 255, 0.98)");

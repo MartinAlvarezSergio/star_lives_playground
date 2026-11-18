@@ -26,6 +26,10 @@ type Props = {
 
 type View = "race" | "single";
 
+/** Close-up size: 1×, 2× or as big as fits; always shrunk to fit under the readouts. */
+type CloseSize = "1" | "2" | "max";
+const CLOSE_REQUEST: Record<CloseSize, number> = { "1": 1, "2": 2, max: 4 };
+
 /** Seconds the smart clock holds still when a star explodes. */
 const HOLD_SECONDS = 1.6;
 
@@ -41,6 +45,7 @@ const TIP = {
   stop: "Pause the clock whenever a star on screen starts a new stage of its life.",
   ahead: "Show each star's whole future path as a faint dashed line.",
   sizes: "Dashed lines through stars of the same size. Hot and big means very bright.",
+  closeSize: "How big the close-up (bottom right) is. It never grows past the space under the numbers; full screen gives it more room.",
   follow: "Which star the close-up (bottom right) shows. You can also click a star on the diagram.",
   age: "All the stars were born together, so they all have this age. The timeline at the bottom shows it too.",
   rate: "How many years the clock covers in one second right now.",
@@ -66,6 +71,28 @@ function dayWords(fraction: number): string {
 }
 
 /** Where the overlay panels leave the canvas free, in logical x (measured from the live DOM). */
+/**
+ * The largest close-up scale that fits under the readouts panel (and in half the stage's width),
+ * or Infinity when the panels are stacked below the canvas (narrow screens).
+ */
+function closeUpFit(canvas: HTMLCanvasElement): number {
+  const stage = canvas.closest(".stage");
+  const readouts = stage?.querySelector(".stage-readouts");
+  if (!stage || !readouts) {
+    return Infinity;
+  }
+  const sr = stage.getBoundingClientRect();
+  const rr = readouts.getBoundingClientRect();
+  const cr = canvas.getBoundingClientRect();
+  if (!(rr.bottom > cr.top && rr.top < cr.bottom && rr.left < cr.right)) {
+    return Infinity;
+  }
+  // Inset: 12 px from the bottom, 6 px padding top and 2 px bottom, and a 10 px gap below the readouts.
+  const availH = sr.bottom - rr.bottom - 12 - 8 - 10;
+  const availW = sr.width * 0.5;
+  return Math.max(1, Math.min(availH / CLOSE_H, availW / CLOSE_W));
+}
+
 function freeBand(canvas: HTMLCanvasElement): { left: number; right: number } {
   const stage = canvas.closest(".stage");
   const cr = canvas.getBoundingClientRect();
@@ -114,14 +141,16 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   const [started, setStarted] = useState(false);
   const [uiT, setUiT] = useState(T_START);
   const [uiRate, setUiRate] = useState(0);
+  const [closeSize, setCloseSize] = useState<CloseSize>("2");
+  const [closeScale, setCloseScale] = useState(1);
 
   useCanvasBackingStore([closeRef]);
 
   const tracks: Track[] = view === "race" ? TRACKS.filter((t) => raceIds.includes(t.id)) : [trackById(singleId)];
   const follow = view === "single" ? trackById(singleId) : tracks.find((t) => t.id === followId) ?? tracks[0] ?? trackById("m1");
 
-  const live = useRef({ tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, running });
-  live.current = { tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, running };
+  const live = useRef({ tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, running, closeSize });
+  live.current = { tracks, follow, view, clockMode, speedExp, steadyExp, stopAtStage, showAhead, showSizes, running, closeSize };
 
   const sim = useRef({
     t: T_START,
@@ -131,7 +160,8 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
     band: { left: 0, right: VIEW_W },
     scrubbing: false,
     /** Wall-clock time until which the smart clock holds still, so a supernova can sink in. */
-    holdUntil: 0
+    holdUntil: 0,
+    closeScale: 1
   });
 
   useEffect(() => {
@@ -154,6 +184,11 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
       if (canvas && now - lastMeasure > 200) {
         lastMeasure = now;
         st.band = freeBand(canvas);
+        const scale = Math.min(CLOSE_REQUEST[live.current.closeSize], closeUpFit(canvas));
+        if (Math.abs(scale - st.closeScale) > 0.02) {
+          st.closeScale = scale;
+          setCloseScale(scale);
+        }
       }
       if (s.running && !st.scrubbing && s.tracks.length > 0 && clock >= st.holdUntil) {
         const r =
@@ -398,6 +433,20 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
           />
         </StageSection>
       ) : null}
+      <StageSection title="Close-up">
+        <StageSegmented<CloseSize>
+          ariaLabel="Close-up size"
+          label="Size"
+          value={closeSize}
+          tip={TIP.closeSize}
+          options={[
+            { value: "1", label: "1×" },
+            { value: "2", label: "2×" },
+            { value: "max", label: "Max" }
+          ]}
+          onChange={setCloseSize}
+        />
+      </StageSection>
       <StageSection title="Show">
         <div className="sl-star-toggles">
           <StageToggle label="Path ahead" on={showAhead} tip={TIP.ahead} onChange={setShowAhead} />
@@ -445,7 +494,7 @@ export function StarLivesCanvas({ host }: Props): JSX.Element {
   const inset = (
     <canvas
       ref={closeRef}
-      style={{ width: CLOSE_W, height: CLOSE_H }}
+      style={{ width: Math.round(CLOSE_W * closeScale), height: Math.round(CLOSE_H * closeScale) }}
       role="img"
       aria-label={`Close-up of the ${follow.label} star, drawn to scale against a familiar object`}
     />
