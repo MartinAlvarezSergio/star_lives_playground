@@ -138,46 +138,98 @@ const ZAMS: [number, number][] = [
   [4.72, 5.8]
 ];
 
-/** log L on the zero-age main sequence at a given log T (linear between the ZAMS points). */
-function zamsLogL(logT: number): number {
-  for (let i = 0; i < ZAMS.length - 1; i++) {
-    const [ta, la] = ZAMS[i];
-    const [tb, lb] = ZAMS[i + 1];
-    if (logT <= tb) {
-      return la + ((lb - la) * (logT - ta)) / (tb - ta);
+/** Zero-age main sequence by mass: [mass in Suns, log T, log L]. */
+const ZAMS_BY_MASS: [number, number, number][] = [
+  [0.1, 3.45, -3.0],
+  [0.2, 3.505, -2.32],
+  [0.5, 3.58, -1.4],
+  [1, 3.748, -0.15],
+  [2, 3.96, 1.2],
+  [3, 4.09, 1.95],
+  [5, 4.24, 2.75],
+  [9, 4.38, 3.6],
+  [15, 4.485, 4.32],
+  [40, 4.655, 5.35]
+];
+
+function zamsAtMass(mass: number): { logT: number; logL: number } {
+  const lm = Math.log10(mass);
+  for (let i = 0; i < ZAMS_BY_MASS.length - 1; i++) {
+    const [ma, ta, la] = ZAMS_BY_MASS[i];
+    const [mb, tb, lb] = ZAMS_BY_MASS[i + 1];
+    if (mass <= mb || i === ZAMS_BY_MASS.length - 2) {
+      const f = (lm - Math.log10(ma)) / (Math.log10(mb) - Math.log10(ma));
+      return { logT: ta + (tb - ta) * f, logL: la + (lb - la) * f };
     }
   }
-  return ZAMS[ZAMS.length - 1][1];
+  return { logT: ZAMS_BY_MASS[0][1], logL: ZAMS_BY_MASS[0][2] };
+}
+
+/** Galaxy-disc age used for the background crowd: stars form steadily for this long. */
+const DISC_AGE = 1e10;
+const MS_LIFE = (m: number): number => Math.max(3e6, 1e10 * m ** -2.5);
+
+/**
+ * How common main-sequence stars of each mass are today, per decade of mass: the Kroupa birth
+ * mass function (slope −1.3 below half a Sun, −2.3 above), times the share of stars born over
+ * the disc's history that are still burning hydrogen (lifetime ÷ disc age, at most 1).
+ */
+function presentDayWeight(m: number): number {
+  const birth = m < 0.5 ? (m / 0.5) ** -1.3 : (m / 0.5) ** -2.3;
+  return birth * m * Math.min(1, MS_LIFE(m) / DISC_AGE);
 }
 
 /**
- * Illustrative background stars on the main sequence (not a real catalogue). Cool, faint stars far
- * outnumber hot, bright ones, as in any patch of the Galaxy. Each sits somewhere between the
- * zero-age main sequence and the brighter, slightly cooler place it reaches near the end of its
- * hydrogen burning, with a little scatter. Fixed seed, so they never move.
+ * Illustrative background stars on the main sequence (made up, not a real catalogue), in the
+ * proportions found near the Sun: about three in four are M dwarfs, and hot B stars are a fraction
+ * of a percent (O stars rarer still, so none appear). Masses are drawn evenly through the
+ * cumulative distribution (fixed seed, so they never change); each star is a random way through
+ * its hydrogen burning, brightening a little and cooling slightly as it goes.
  */
-export const BACKGROUND_STARS = Array.from({ length: 420 }, (_, i) => {
-  const x = hash01(i + 1000);
-  // Skewed hard towards cool stars; a few reach the hot O stars.
-  const logT0 = 3.46 + (4.68 - 3.46) * x ** 2.4;
-  const evolved = 0.5 * hash01(i + 2000) ** 1.4;
-  const g = Math.sqrt(-2 * Math.log(Math.max(1e-6, hash01(i + 3000)))) * Math.cos(2 * Math.PI * hash01(i + 4000));
-  const logT = logT0 - 0.04 * evolved + 0.012 * g;
-  const logL = zamsLogL(logT0) + evolved + 0.07 * g;
-  // A small decorative orbit round its spot: tilted ellipse, smaller loops go round faster (Kepler-like).
-  const size = 1.5 + 4.5 * hash01(i + 6000);
-  return {
-    logT,
-    logL,
-    twinkle: hash01(i + 5000) * Math.PI * 2,
-    orbitA: size,
-    orbitB: size * (0.45 + 0.5 * hash01(i + 7000)),
-    tilt: hash01(i + 8000) * Math.PI,
-    period: 9 * (size / 3) ** 1.5,
-    phase: hash01(i + 9000) * Math.PI * 2,
-    sense: hash01(i + 9500) > 0.5 ? 1 : -1
-  };
-});
+export const BACKGROUND_STARS = (() => {
+  const N = 500;
+  const lo = Math.log10(0.1);
+  const hi = Math.log10(40);
+  const steps = 2000;
+  const cum: number[] = [0];
+  for (let i = 1; i <= steps; i++) {
+    const m = 10 ** (lo + ((i - 0.5) / steps) * (hi - lo));
+    cum.push(cum[i - 1] + presentDayWeight(m));
+  }
+  const total = cum[steps];
+  return Array.from({ length: N }, (_, i) => {
+    // Stratified: one star per 1/N slice of the distribution, jittered inside its slice.
+    const u = ((i + hash01(i + 1000)) / N) * total;
+    let k = 1;
+    while (k < steps && cum[k] < u) k++;
+    const frac = (u - cum[k - 1]) / (cum[k] - cum[k - 1] || 1);
+    const mass = 10 ** (lo + ((k - 1 + frac) / steps) * (hi - lo));
+    // How far through its main-sequence life: born any time in the disc's history, still alive.
+    const lifeUsed = hash01(i + 2000) * Math.min(1, DISC_AGE / MS_LIFE(mass));
+    const evolved = 0.5 * lifeUsed ** 1.3;
+    const z = zamsAtMass(mass);
+    const g = Math.sqrt(-2 * Math.log(Math.max(1e-6, hash01(i + 3000)))) * Math.cos(2 * Math.PI * hash01(i + 4000));
+    const logT = z.logT - 0.04 * evolved + 0.008 * g;
+    const logL = z.logL + evolved + 0.05 * g;
+    // A small decorative orbit round its spot: tilted ellipse, smaller loops go round faster (Kepler-like).
+    const size = 1.5 + 4.5 * hash01(i + 6000);
+    return {
+      mass,
+      logT,
+      logL,
+      twinkle: hash01(i + 5000) * Math.PI * 2,
+      orbitA: size,
+      orbitB: size * (0.45 + 0.5 * hash01(i + 7000)),
+      tilt: hash01(i + 8000) * Math.PI,
+      period: 9 * (size / 3) ** 1.5,
+      phase: hash01(i + 9000) * Math.PI * 2,
+      sense: hash01(i + 9500) > 0.5 ? 1 : -1
+    };
+  });
+})();
+
+/** Background dots are this fraction of the size a moving star would have at the same spot. */
+const BACKGROUND_SIZE = 0.35;
 
 function drawBackgroundStars(ctx: CanvasRenderingContext2D, l: Layout, clock: number, reducedMotion: boolean): void {
   for (const b of BACKGROUND_STARS) {
@@ -191,11 +243,12 @@ function drawBackgroundStars(ctx: CanvasRenderingContext2D, l: Layout, clock: nu
       y += ex * Math.sin(b.tilt) + ey * Math.cos(b.tilt);
     }
     const R = Math.sqrt(10 ** b.logL) * (5772 / 10 ** b.logT) ** 2;
-    const r = Math.max(0.9, Math.min(2.8, 1.3 + 0.55 * Math.log10(R)));
+    // Same size rule as the big star dots, scaled down, so size still tracks the star's radius.
+    const r = BACKGROUND_SIZE * dotRadius(R);
     const a = reducedMotion ? 0.6 : 0.5 + 0.18 * Math.sin(clock * 1.3 + b.twinkle);
-    ctx.fillStyle = starColour(10 ** b.logT, a * 0.35);
+    ctx.fillStyle = starColour(10 ** b.logT, a * 0.2);
     ctx.beginPath();
-    ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
+    ctx.arc(x, y, r * 1.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = starColour(10 ** b.logT, a);
     ctx.beginPath();
